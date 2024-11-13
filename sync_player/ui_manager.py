@@ -1,122 +1,40 @@
 import sys
-import os
-import platform
 import tkinter as tk
-from tkinter import filedialog, messagebox
-import vlc
 from pynput import mouse
-from align_videos_by_soundtrack import simple_html5_simult_player_builder
-from align_videos_by_soundtrack.align_params import SyncDetectorSummarizerParams
-
-# Constants
-EDGE_WIDTH = 10  # Width of the draggable edge for resizing
-MIN_WIDTH = 100  # Minimum width for resizing
-MIN_HEIGHT = 100  # Minimum height for resizing
+import settings
 
 
-class VideoPlayer:
+class UIManager:
     """
-    A class representing a video player with position, size, and playback controls.
+    This class manages the tkinter UI, including the control panels,
+    event handling for user interactions, layout, and volume/seek controls.
     """
 
-    def __init__(self, player, x=0, y=0, w=0, h=0):
-        """
-        Initializes a new instance of the VideoPlayer class.
-        """
-        # Position and size
-        self.x = x  # X-coordinate
-        self.y = y  # Y-coordinate
-        self.w = w  # Width
-        self.h = h  # Height
-
-        # VLC player instance
-        self.instance = None
-        self.player = player  # VLC media player instance
-        self.panel = None
-        self.offset = 0  # Offset for synchronization
-
-        # Flags for dragging and resizing
-        self.is_being_dragged = False
-        self.is_being_resized = False
-        self.resize_sides = [False, False, False, False]  # [Left, Top, Right, Bottom]
-
-        # Control flags
-        self.pause_for_frame = False
-
-        # Variables to store initial positions and sizes during drag/resize
-        self.drag_start_x = 0
-        self.drag_start_y = 0
-        self.drag_start_w = 0
-        self.drag_start_h = 0
-
-    def area(self):
-        """
-        Returns the current area (position and size) of the video player.
-        """
-        return self.x, self.y, self.w, self.h
-
-    def set_area(self, video_panel):
-        """
-        Updates the position and size attributes based on the given video panel.
-        """
-        self.x = video_panel.winfo_x()
-        self.y = video_panel.winfo_y()
-        self.w = video_panel.winfo_width()
-        self.h = video_panel.winfo_height()
-
-    def set_volume(self, value):
-        """
-        Sets the volume of the video player.
-        """
-        self.player.audio_set_volume(int(value))
-
-
-class SyncedPlayer:
-    """
-    A synchronized video player that plays two videos in sync.
-    """
-
-    def __init__(self, root, video1_path, video2_path):
+    def __init__(self, root, player1, player2, sync_manager, event_manager):
         self.root = root
-        self.root.title("Synchronized Video Player")
-
-        # VLC instances
-        self.instance1 = vlc.Instance("--no-video-title-show", "--aout=directsound")
-        self.instance2 = vlc.Instance("--no-video-title-show", "--aout=directsound")
-
-        # Create VideoPlayer instances
-        self.player1 = VideoPlayer(
-            self.instance1.media_player_new(), x=50, y=50, w=320, h=240
-        )
-        self.player1.instance = self.instance1
-        self.player1.player.video_set_mouse_input(False)
-
-        self.player2 = VideoPlayer(
-            self.instance2.media_player_new(), x=400, y=50, w=320, h=240
-        )
-        self.player2.instance = self.instance2
-        self.player2.player.video_set_mouse_input(False)
-
-        # Compute offsets
-        self.offsets = self.compute_offsets(video1_path, video2_path)
-        self.player1.offset = self.offsets[0]
-        self.player2.offset = self.offsets[1]
+        self.player1 = player1
+        self.player2 = player2
+        self.sync_manager = sync_manager
+        self.event_manager = event_manager
 
         # Variables
+        self.controls_visible = True
+        self.hide_controls_after = settings.HIDE_CONTROLS_AFTER
+        self.hide_controls_job = None
+
         self.drag_start = (0, 0)
         self.user_is_seeking = False
-
-        self.controls_visible = True
-        self.hide_controls_after = (
-            3000  # Time in milliseconds to wait before hiding controls
-        )
-        self.hide_controls_job = None
 
         # Create UI elements
         self.create_ui()
 
-        # Load videos
-        self.load_videos(video1_path, video2_path)
+        # Subscribe to the 'play_pause_state_changed' event
+        self.event_manager.subscribe(
+            "play_pause_state_changed", self.update_play_button
+        )
+
+        # Start the loop to update the seek bar
+        self.update_seek_bar_loop()
 
         # Start mouse listener (for pynput)
         self.mouse_listener = mouse.Listener(
@@ -124,59 +42,49 @@ class SyncedPlayer:
         )
         self.mouse_listener.start()
 
-        # Ensure proper resource cleanup
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        # Bind key events to the root window
+        self.root.bind("<Key>", self.on_key_press)
+        self.root.focus_set()  # Ensure the root window has focus
 
-    def get_control_panel_area(self, frame):
+    def on_key_press(self, event):
         """
-        Returns the area of the control panel based on the given frame.
+        Handles key press events.
         """
-        x, y = self.get_rel_coords(frame.winfo_rootx(), frame.winfo_rooty())
-        width = frame.winfo_width()
-        height = frame.winfo_height()
-        return x, y, width, height
-
-    def is_inside_any_control_panel(self, x, y):
-        """
-        Checks if the given coordinates are inside any of the control panels.
-        """
-        x, y = self.get_rel_coords(x, y)
-        return (
-            self.is_inside(x, y, self.get_control_panel_area(self.control_panel))
-            or self.is_inside(x, y, self.get_control_panel_area(self.control_panel1))
-            or self.is_inside(x, y, self.get_control_panel_area(self.control_panel2))
-        )
+        key = event.keysym.lower()
+        if key in ("space", "k"):
+            # Pause/play both videos
+            self.event_manager.trigger("play_pause_both")
+        elif key == "left":
+            # Seek backward 5 seconds
+            self.event_manager.trigger("seek_relative", -5)
+        elif key == "right":
+            # Seek forward 5 seconds
+            self.event_manager.trigger("seek_relative", 5)
+        elif key == "j":
+            # Seek backward 10 seconds
+            self.event_manager.trigger("seek_relative", -10)
+        elif key == "l":
+            # Seek forward 10 seconds
+            self.event_manager.trigger("seek_relative", 10)
+        elif key == "v":
+            # Cycle subtitles in video 2
+            self.event_manager.trigger("cycle_subtitles", player_id=2)
+        elif key == "b":
+            # Cycle audio tracks in video 2
+            self.event_manager.trigger("cycle_audio_tracks", player_id=2)
 
     def create_ui(self):
         """
         Creates the UI elements for the synchronized video player.
         """
-        # Video panel for video 1
-        self.player1.panel = tk.Frame(
-            self.root,
-            bg="red",
-            width=self.player1.area()[2],
-            height=self.player1.area()[3],
-        )
-        self.player1.panel.place(x=self.player1.area()[0], y=self.player1.area()[1])
-
-        # Video panel for video 2
-        self.player2.panel = tk.Frame(
-            self.root,
-            bg="blue",
-            width=self.player2.area()[2],
-            height=self.player2.area()[3],
-        )
-        self.player2.panel.place(x=self.player2.area()[0], y=self.player2.area()[1])
-
         # Control panel for video 1
         self.control_panel1, self.volume_slider1 = self.create_video_controls(
-            self.player1, "Video 1"
+            self.player1, "Video 1", player_id=1
         )
 
         # Control panel for video 2
         self.control_panel2, self.volume_slider2 = self.create_video_controls(
-            self.player2, "Video 2"
+            self.player2, "Video 2", player_id=2
         )
 
         # Main control panel
@@ -184,12 +92,14 @@ class SyncedPlayer:
 
         self.play_button = tk.Button(
             self.control_panel,
-            text="Play/Pause Both Videos",
-            command=self.play_pause_both,
+            text="Play",
+            command=lambda: self.event_manager.trigger("play_pause_both"),
         )
         self.play_button.pack(side=tk.LEFT)
 
-        self.stop_button = tk.Button(self.control_panel, text="Stop", command=self.stop)
+        self.stop_button = tk.Button(
+            self.control_panel, text="Stop", command=self.sync_manager.stop
+        )
         self.stop_button.pack(side=tk.LEFT)
 
         # Time label for seek bar (min:sec display)
@@ -214,13 +124,7 @@ class SyncedPlayer:
 
         self.control_panel.pack()
 
-        # Start the loop to update the seek bar
-        self.update_seek_bar_loop()
-
-    def create_video_controls(self, player, label_text):
-        """
-        Creates control panel for a video player.
-        """
+    def create_video_controls(self, player, label_text, player_id):
         control_panel = tk.Frame(self.root)
         volume_label = tk.Label(control_panel, text=f"Volume {label_text}")
         volume_label.pack(side=tk.LEFT)
@@ -229,43 +133,52 @@ class SyncedPlayer:
             from_=0,
             to=100,
             orient=tk.HORIZONTAL,
-            command=lambda value: player.set_volume(value),
+            command=lambda value: self.event_manager.trigger(
+                "volume_changed", player_id, int(value)
+            ),
         )
-        volume_slider.set(50)  # Set default volume
+        volume_slider.set(settings.DEFAULT_VOLUME)
         volume_slider.pack(side=tk.LEFT)
 
         play_button = tk.Button(
             control_panel,
             text=f"Play/Pause {label_text}",
-            command=lambda: self.play_pause_single(player.player),
+            command=lambda: self.event_manager.trigger("play_pause_single", player_id),
         )
         play_button.pack(side=tk.LEFT)
 
         frame_button = tk.Button(
             control_panel,
             text=f"Pause {label_text} for frame",
-            command=lambda: self.pause_for_frame(player.player),
+            command=lambda: self.event_manager.trigger("pause_for_frame", player_id),
         )
         frame_button.pack(side=tk.LEFT)
 
         control_panel.pack()
         return control_panel, volume_slider
 
+    def update_play_button(self, text):
+        """
+        Updates the main play button text.
+        """
+        self.play_button.config(text=text)
+
     def on_click(self, x, y, button, pressed):
         """
         Handles mouse click events.
         """
-        if not self.is_within_app_window(x, y):
-            return
-
-        # Get the root window's position on the screen
-        x_relative, y_relative = self.get_rel_coords(x, y)
-
         if pressed and button == mouse.Button.left:
+            if not self.is_within_app_window(x, y):
+                return
+
+            # Get the root window's position on the screen
+            x_relative, y_relative = self.get_rel_coords(x, y)
+
             # Return if the click is on the control panel
             if self.is_inside_any_control_panel(x, y):
                 return
 
+            # Begin dragging or resizing logic
             if self.is_inside(x_relative, y_relative, self.player2.area()):
                 is_edge, self.player2.resize_sides = self.get_side(
                     x_relative, y_relative, self.player2.area()
@@ -301,6 +214,7 @@ class SyncedPlayer:
                     self.player1.drag_start_y = self.player1.y
 
         else:
+            # Always release dragging, even if the mouse is outside the window
             self.release_dragging()
 
     def release_dragging(self):
@@ -320,10 +234,6 @@ class SyncedPlayer:
         Handles mouse move events.
         """
         if x is None or y is None:
-            return
-
-        if not self.is_within_app_window(x, y):
-            self.release_dragging()
             return
 
         x_relative, y_relative = self.get_rel_coords(x, y)
@@ -415,6 +325,8 @@ class SyncedPlayer:
         player.panel.place(x=new_x, y=new_y)
         player.set_area(player.panel)
 
+        self.event_manager.trigger("video_dragged", player)
+
     def resize_player(self, player, x_current, y_current):
         """
         Resizes the player.
@@ -443,17 +355,21 @@ class SyncedPlayer:
             new_h = player.drag_start_h + dy
 
         # Apply constraints if needed (e.g., minimum width/height)
-        if new_w < MIN_WIDTH:
-            new_w = MIN_WIDTH
+        if new_w < settings.MIN_WIDTH:
+            new_w = settings.MIN_WIDTH
             if player.resize_sides[0]:  # Adjust position if resizing from left
-                new_x = player.drag_start_x + (player.drag_start_w - MIN_WIDTH)
-        if new_h < MIN_HEIGHT:
-            new_h = MIN_HEIGHT
+                new_x = player.drag_start_x + (player.drag_start_w - settings.MIN_WIDTH)
+        if new_h < settings.MIN_HEIGHT:
+            new_h = settings.MIN_HEIGHT
             if player.resize_sides[1]:  # Adjust position if resizing from top
-                new_y = player.drag_start_y + (player.drag_start_h - MIN_HEIGHT)
+                new_y = player.drag_start_y + (
+                    player.drag_start_h - settings.MIN_HEIGHT
+                )
 
         player.panel.place(x=new_x, y=new_y, width=new_w, height=new_h)
         player.set_area(player.panel)
+
+        self.event_manager.trigger("video_resized", player)
 
     def is_inside(self, x, y, area):
         """
@@ -470,16 +386,16 @@ class SyncedPlayer:
         edges = [False, False, False, False]  # Left, Top, Right, Bottom
 
         # Left edge
-        if x1 <= x <= x1 + EDGE_WIDTH and y1 <= y <= y1 + h:
+        if x1 <= x <= x1 + settings.EDGE_WIDTH and y1 <= y <= y1 + h:
             edges[0] = True
         # Top edge
-        if x1 <= x <= x1 + w and y1 <= y <= y1 + EDGE_WIDTH:
+        if x1 <= x <= x1 + w and y1 <= y <= y1 + settings.EDGE_WIDTH:
             edges[1] = True
         # Right edge
-        if x1 + w - EDGE_WIDTH <= x <= x1 + w and y1 <= y <= y1 + h:
+        if x1 + w - settings.EDGE_WIDTH <= x <= x1 + w and y1 <= y <= y1 + h:
             edges[2] = True
         # Bottom edge
-        if x1 <= x <= x1 + w and y1 + h - EDGE_WIDTH <= y <= y1 + h:
+        if x1 <= x <= x1 + w and y1 + h - settings.EDGE_WIDTH <= y <= y1 + h:
             edges[3] = True
 
         return any(edges), edges
@@ -492,26 +408,6 @@ class SyncedPlayer:
         root_y = self.root.winfo_rooty()
         return x - root_x, y - root_y
 
-    def pause_for_frame(self, player):
-        """
-        Pauses the video player for one frame.
-        """
-        # Pause the player for one frame
-        player.set_pause(1)  # Pause the video
-
-        # Advance by a single frame (simulate by very short pause)
-        fps = player.get_fps()
-        if fps <= 0:  # If fps can't be determined, assume 24 fps
-            fps = 24
-
-        frame_duration = 1 / fps  # Duration of one frame in seconds
-
-        def unpause_player():
-            player.set_pause(0)  # Unpause the video
-
-        # Schedule the unpause after the frame duration
-        self.root.after(int(frame_duration * 1000), unpause_player)
-
     def on_seek_bar_press(self, event):
         """
         Called when the seek bar is pressed.
@@ -523,7 +419,7 @@ class SyncedPlayer:
         Called when the seek bar is released.
         """
         self.user_is_seeking = False
-        self.perform_seek()
+        self.sync_manager.perform_seek(self.seek_bar.get())
 
     def on_seek_bar_move(self, value):
         """
@@ -531,19 +427,6 @@ class SyncedPlayer:
         """
         if self.user_is_seeking:
             self.seek_bar.set(int(float(value)))  # Ensure the value is an integer
-
-    def perform_seek(self):
-        """
-        Performs the seek operation on both video players.
-        """
-        try:
-            value = self.seek_bar.get()
-            # Set time directly in seconds
-            time_ms = value * 1000  # Convert seconds back to milliseconds
-            self.player1.player.set_time(time_ms)
-            self.player2.player.set_time(time_ms)
-        except Exception as e:
-            print(f"Error performing seek: {e}")
 
     def update_seek_bar_loop(self):
         """
@@ -588,127 +471,25 @@ class SyncedPlayer:
         seconds = seconds % 60
         return f"{minutes}:{seconds:02d}"
 
-    def compute_offsets(self, video1_path, video2_path):
+    def is_inside_any_control_panel(self, x, y):
         """
-        Computes the synchronization offsets between two videos.
+        Checks if the given coordinates are inside any of the control panels.
         """
-        # Parameters for synchronization
-        params = SyncDetectorSummarizerParams(
-            fft_bin_size=1024,
-            overlap=256,
-            lowcut=100,
-            highcut=4000,
-            maxes_per_box=5,
-            sample_rate=44100,
+        x, y = self.get_rel_coords(x, y)
+        return (
+            self.is_inside(x, y, self.get_control_panel_area(self.control_panel))
+            or self.is_inside(x, y, self.get_control_panel_area(self.control_panel1))
+            or self.is_inside(x, y, self.get_control_panel_area(self.control_panel2))
         )
 
-        # Compute offsets
-        offsets = simple_html5_simult_player_builder.get_video_offsets(
-            video1_path, video2_path, params
-        )
-        print("Computed Offsets:")
-        print(f"Video 1: {offsets[0]}s")
-        print(f"Video 2: {offsets[1]}s")
-        return offsets
-
-    def load_videos(self, path1, path2):
+    def get_control_panel_area(self, frame):
         """
-        Loads the video files into the players.
+        Returns the area of the control panel based on the given frame.
         """
-        # Check if files exist
-        if not os.path.exists(path1) or not os.path.exists(path2):
-            messagebox.showerror("Error", "One or both video files do not exist.")
-            return
-
-        try:
-            # Load media
-            self.media1 = self.instance1.media_new(path1)
-            self.player1.player.set_media(self.media1)
-            self.media2 = self.instance2.media_new(path2)
-            self.player2.player.set_media(self.media2)
-
-            # Set video output windows
-            handle1 = self.get_handle(self.player1.panel)
-            handle2 = self.get_handle(self.player2.panel)
-
-            system = platform.system()
-            if system == "Windows":
-                self.player1.player.set_hwnd(handle1)
-                self.player2.player.set_hwnd(handle2)
-            elif system == "Linux":
-                self.player1.player.set_xwindow(handle1)
-                self.player2.player.set_xwindow(handle2)
-            elif system == "Darwin":
-                self.player1.player.set_nsobject(handle1)
-                self.player2.player.set_nsobject(handle2)
-
-            # Set initial positions based on offsets
-            self.player1.player.play()
-            self.player2.player.play()
-
-            # Pause immediately after starting to set positions
-            self.player1.player.pause()
-            self.player2.player.pause()
-
-            # Set positions
-            self.player1.player.set_time(
-                int(self.offsets[0] * 1000)
-            )  # Convert to milliseconds
-            self.player2.player.set_time(int(self.offsets[1] * 1000))
-
-            # Set initial volume
-            self.player1.player.audio_set_volume(self.volume_slider1.get())
-            self.player2.player.audio_set_volume(self.volume_slider2.get())
-
-            # Update play button text
-            self.play_button.config(text="Play")
-
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load videos: {e}")
-
-    def play_pause_single(self, player):
-        """
-        Toggles play/pause for a single player.
-        """
-        player.pause()
-
-    def play_pause_both(self):
-        """
-        Toggles play/pause for both players.
-        """
-        if self.player1.player.is_playing() and self.player2.player.is_playing():
-            self.player1.player.pause()
-            self.player2.player.pause()
-            self.play_button.config(text="Play")
-        else:
-            self.player1.player.play()
-            self.player2.player.play()
-            self.play_button.config(text="Pause")
-
-    def stop(self):
-        """
-        Stops both players.
-        """
-        self.player1.player.stop()
-        self.player2.player.stop()
-        self.play_button.config(text="Play")
-
-    def sync_videos(self):
-        """
-        Synchronizes the videos based on their offsets.
-        """
-        base_time = self.player1.player.get_time() / 1000.0  # Convert to seconds
-        position1 = base_time
-        position2 = base_time + (self.player2.offset - self.player1.offset)
-
-        self.player1.player.set_time(int(position1 * 1000))
-        self.player2.player.set_time(int(position2 * 1000))
-
-    def get_handle(self, video_panel):
-        """
-        Gets the window handle for the video panel.
-        """
-        return video_panel.winfo_id()
+        x, y = self.get_rel_coords(frame.winfo_rootx(), frame.winfo_rooty())
+        width = frame.winfo_width()
+        height = frame.winfo_height()
+        return x, y, width, height
 
     def on_closing(self):
         """
@@ -728,16 +509,3 @@ class SyncedPlayer:
 
         # Exit the program
         sys.exit(0)
-
-
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        video1_path = r"Debug/MR. ROBOT 1×01.mp4"
-        video2_path = r"Debug/Mr.Robot.S01E01.eps1.0.hellofriend.mov.1080p.10bit.BluRay.AAC5.1.HEVC-Vyndros.mkv"
-    else:
-        video1_path = sys.argv[1]
-        video2_path = sys.argv[2]
-
-    root = tk.Tk()
-    player = SyncedPlayer(root, video1_path, video2_path)
-    root.mainloop()
