@@ -35,5 +35,5 @@ SYNC_PARAMS = {
 }
 
 # Default video paths
-DEFAULT_VIDEO1_PATH = r"assets/MR. ROBOT 1×01.mp4"
-DEFAULT_VIDEO2_PATH = r"assets/Mr.Robot.S01E01.eps1.0.hellofriend.mov.1080p.10bit.BluRay.AAC5.1.HEVC-Vyndros.mkv"
+DEFAULT_VIDEO1_PATH = r"assets/debug/MR. ROBOT 1×01.mp4"
+DEFAULT_VIDEO2_PATH = r"assets/debug/Mr.Robot.S01E01.eps1.0.hellofriend.mov.1080p.10bit.BluRay.AAC5.1.HEVC-Vyndros.mkv"

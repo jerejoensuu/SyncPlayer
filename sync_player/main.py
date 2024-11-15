@@ -17,7 +17,7 @@ from event_manager import EventManager
 
 class SyncedPlayer:
     """
-    The main application class that initializes the players, UIManager, and SyncManager.
+    The main application class that initializes the players.
     """
 
     def __init__(self, root, video1_path, video2_path):
@@ -28,8 +28,8 @@ class SyncedPlayer:
         self.event_manager = EventManager()
 
         # VLC instances
-        self.instance1 = vlc.Instance("--no-video-title-show")
-        self.instance2 = vlc.Instance("--no-video-title-show")
+        self.instance1 = vlc.Instance("--no-video-title-show", "--aout=directsound")
+        self.instance2 = vlc.Instance("--no-video-title-show", "--aout=directsound")
 
         # Create VideoPlayer instances
         self.player1 = VideoPlayer(
