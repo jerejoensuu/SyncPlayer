@@ -2,6 +2,39 @@ import sys
 import tkinter as tk
 from pynput import mouse
 import settings
+import ctypes
+import ctypes.wintypes
+
+
+def is_inside(x, y, area):
+    """
+    Checks if a point is inside a given area.
+    """
+    x1, y1, w, h = area
+    return x1 <= x <= x1 + w and y1 <= y <= y1 + h
+
+
+def get_side(x, y, area):
+    """
+    Determines which side of the area the point is near for resizing.
+    """
+    x1, y1, w, h = area
+    edges = [False, False, False, False]  # Left, Top, Right, Bottom
+
+    # Left edge
+    if x1 <= x <= x1 + settings.EDGE_WIDTH and y1 <= y <= y1 + h:
+        edges[0] = True
+    # Top edge
+    if x1 <= x <= x1 + w and y1 <= y <= y1 + settings.EDGE_WIDTH:
+        edges[1] = True
+    # Right edge
+    if x1 + w - settings.EDGE_WIDTH <= x <= x1 + w and y1 <= y <= y1 + h:
+        edges[2] = True
+    # Bottom edge
+    if x1 <= x <= x1 + w and y1 + h - settings.EDGE_WIDTH <= y <= y1 + h:
+        edges[3] = True
+
+    return any(edges), edges
 
 
 class UIManager:
@@ -11,6 +44,16 @@ class UIManager:
     """
 
     def __init__(self, root, player1, player2, sync_manager, event_manager):
+        self.seek_bar = None
+        self.time_label = None
+        self.stop_button = None
+        self.play_button = None
+        self.volume_slider1 = None
+        self.volume_slider2 = None
+        self.control_panel = None
+        self.control_panel1 = None
+        self.control_panel2 = None
+
         self.root = root
         self.player1 = player1
         self.player2 = player2
@@ -78,14 +121,10 @@ class UIManager:
         Creates the UI elements for the synchronized video player.
         """
         # Control panel for video 1
-        self.control_panel1, self.volume_slider1 = self.create_video_controls(
-            self.player1, "Video 1", player_id=1
-        )
+        self.control_panel1, self.volume_slider1 = self.create_video_controls("Video 1", player_id=1)
 
         # Control panel for video 2
-        self.control_panel2, self.volume_slider2 = self.create_video_controls(
-            self.player2, "Video 2", player_id=2
-        )
+        self.control_panel2, self.volume_slider2 = self.create_video_controls("Video 2", player_id=2)
 
         # Main control panel
         self.control_panel = tk.Frame(self.root)
@@ -124,7 +163,7 @@ class UIManager:
 
         self.control_panel.pack()
 
-    def create_video_controls(self, player, label_text, player_id):
+    def create_video_controls(self, label_text, player_id):
         control_panel = tk.Frame(self.root)
         volume_label = tk.Label(control_panel, text=f"Volume {label_text}")
         volume_label.pack(side=tk.LEFT)
@@ -163,58 +202,57 @@ class UIManager:
         """
         self.play_button.config(text=text)
 
+    def is_mouse_over_app(self, x, y):
+        """
+        Determines if the point (x, y) is over the SyncPlayer window or any of its children.
+        """
+        user32 = ctypes.windll.user32
+        point = ctypes.wintypes.POINT(x, y)
+        hwnd_at_point = user32.WindowFromPoint(point)
+
+        # Check if the hwnd_at_point is either the root or a child of the root
+        root_hwnd = self.root.winfo_id()
+        is_child = user32.IsChild(root_hwnd, hwnd_at_point)
+
+        return (hwnd_at_point == root_hwnd) or is_child
+
     def on_click(self, x, y, button, pressed):
         """
         Handles mouse click events.
         """
         if pressed and button == mouse.Button.left:
-            if not self.is_within_app_window(x, y):
+            if not self.is_mouse_over_app(x, y):
                 return
 
-            # Get the root window's position on the screen
+            # Get the root window's relative coordinates
             x_relative, y_relative = self.get_rel_coords(x, y)
 
             # Return if the click is on the control panel
             if self.is_inside_any_control_panel(x, y):
                 return
 
-            # Begin dragging or resizing logic
-            if self.is_inside(x_relative, y_relative, self.player2.area()):
-                is_edge, self.player2.resize_sides = self.get_side(
-                    x_relative, y_relative, self.player2.area()
-                )
+            # Nested helper to handle drag or resize logic for a given player
+            def handle_drag_or_resize(player):
+                is_edge, player.resize_sides = get_side(x_relative, y_relative, player.area())
+                # Set a common drag start point and initial drag coordinates
+                self.drag_start = (x_relative, y_relative)
+                player.drag_start_x = player.x
+                player.drag_start_y = player.y
                 if is_edge:
-                    self.player2.is_being_resized = True
-                    self.drag_start = (x_relative, y_relative)
-                    self.player2.drag_start_x = self.player2.x
-                    self.player2.drag_start_y = self.player2.y
-                    self.player2.drag_start_w = self.player2.w
-                    self.player2.drag_start_h = self.player2.h
+                    player.is_being_resized = True
+                    player.drag_start_w = player.w
+                    player.drag_start_h = player.h
                 else:
-                    self.player2.is_being_dragged = True
-                    self.drag_start = (x_relative, y_relative)
-                    self.player2.drag_start_x = self.player2.x
-                    self.player2.drag_start_y = self.player2.y
+                    player.is_being_dragged = True
 
-            elif self.is_inside(x_relative, y_relative, self.player1.area()):
-                is_edge, self.player1.resize_sides = self.get_side(
-                    x_relative, y_relative, self.player1.area()
-                )
-                if is_edge:
-                    self.player1.is_being_resized = True
-                    self.drag_start = (x_relative, y_relative)
-                    self.player1.drag_start_x = self.player1.x
-                    self.player1.drag_start_y = self.player1.y
-                    self.player1.drag_start_w = self.player1.w
-                    self.player1.drag_start_h = self.player1.h
-                else:
-                    self.player1.is_being_dragged = True
-                    self.drag_start = (x_relative, y_relative)
-                    self.player1.drag_start_x = self.player1.x
-                    self.player1.drag_start_y = self.player1.y
+            # Determine which player's area was clicked and apply the logic.
+            if is_inside(x_relative, y_relative, self.player2.area()):
+                handle_drag_or_resize(self.player2)
+            elif is_inside(x_relative, y_relative, self.player1.area()):
+                handle_drag_or_resize(self.player1)
 
         else:
-            # Always release dragging, even if the mouse is outside the window
+            # Always release dragging, even if the mouse is outside the window.
             self.release_dragging()
 
     def release_dragging(self):
@@ -238,7 +276,7 @@ class UIManager:
 
         x_relative, y_relative = self.get_rel_coords(x, y)
 
-        if self.is_within_app_window(x, y):
+        if self.is_mouse_over_app(x, y):
             self.wake_controls()
 
         if self.player1.is_being_dragged:
@@ -257,7 +295,7 @@ class UIManager:
         """
         Handles mouse scroll events for volume control.
         """
-        if not self.is_within_app_window(x, y):
+        if not self.is_mouse_over_app(x, y):
             return
 
         # Return if the click is on the control panel
@@ -266,25 +304,14 @@ class UIManager:
 
         x_relative, y_relative = self.get_rel_coords(x, y)
 
-        if self.is_inside(x_relative, y_relative, self.player2.area()):
+        if is_inside(x_relative, y_relative, self.player2.area()):
             new_volume = self.player2.player.audio_get_volume() + dy
             self.player2.set_volume(new_volume)
             self.volume_slider2.set(new_volume)
-        elif self.is_inside(x_relative, y_relative, self.player1.area()):
+        elif is_inside(x_relative, y_relative, self.player1.area()):
             new_volume = self.player1.player.audio_get_volume() + dy
             self.player1.set_volume(new_volume)
             self.volume_slider1.set(new_volume)
-
-    def is_within_app_window(self, x, y):
-        """
-        Checks if the given screen coordinates are within the application window.
-        """
-        root_x = self.root.winfo_rootx()
-        root_y = self.root.winfo_rooty()
-        width = self.root.winfo_width()
-        height = self.root.winfo_height()
-
-        return root_x <= x <= root_x + width and root_y <= y <= root_y + height
 
     def hide_controls(self):
         """
@@ -370,42 +397,13 @@ class UIManager:
             new_h = settings.MIN_HEIGHT
             if player.resize_sides[1]:  # Adjust position if resizing from top
                 new_y = player.drag_start_y + (
-                    player.drag_start_h - settings.MIN_HEIGHT
+                        player.drag_start_h - settings.MIN_HEIGHT
                 )
 
         player.panel.place(x=new_x, y=new_y, width=new_w, height=new_h)
         player.set_area(player.panel)
 
         self.event_manager.trigger("video_resized", player)
-
-    def is_inside(self, x, y, area):
-        """
-        Checks if a point is inside a given area.
-        """
-        x1, y1, w, h = area
-        return x1 <= x <= x1 + w and y1 <= y <= y1 + h
-
-    def get_side(self, x, y, area):
-        """
-        Determines which side of the area the point is near for resizing.
-        """
-        x1, y1, w, h = area
-        edges = [False, False, False, False]  # Left, Top, Right, Bottom
-
-        # Left edge
-        if x1 <= x <= x1 + settings.EDGE_WIDTH and y1 <= y <= y1 + h:
-            edges[0] = True
-        # Top edge
-        if x1 <= x <= x1 + w and y1 <= y <= y1 + settings.EDGE_WIDTH:
-            edges[1] = True
-        # Right edge
-        if x1 + w - settings.EDGE_WIDTH <= x <= x1 + w and y1 <= y <= y1 + h:
-            edges[2] = True
-        # Bottom edge
-        if x1 <= x <= x1 + w and y1 + h - settings.EDGE_WIDTH <= y <= y1 + h:
-            edges[3] = True
-
-        return any(edges), edges
 
     def get_rel_coords(self, x, y):
         """
@@ -469,7 +467,8 @@ class UIManager:
         # Schedule the next update after 1000 ms
         self.root.after(1000, self.update_seek_bar_loop)
 
-    def format_time(self, milliseconds):
+    @staticmethod
+    def format_time(milliseconds):
         """
         Formats time in milliseconds to a min:sec string.
         """
@@ -484,9 +483,9 @@ class UIManager:
         """
         x, y = self.get_rel_coords(x, y)
         return (
-            self.is_inside(x, y, self.get_control_panel_area(self.control_panel))
-            or self.is_inside(x, y, self.get_control_panel_area(self.control_panel1))
-            or self.is_inside(x, y, self.get_control_panel_area(self.control_panel2))
+                is_inside(x, y, self.get_control_panel_area(self.control_panel))
+                or is_inside(x, y, self.get_control_panel_area(self.control_panel1))
+                or is_inside(x, y, self.get_control_panel_area(self.control_panel2))
         )
 
     def get_control_panel_area(self, frame):

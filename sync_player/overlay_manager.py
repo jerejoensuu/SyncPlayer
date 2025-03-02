@@ -1,6 +1,5 @@
-import tkinter as tk
-from typing import Optional
 import vlc
+
 import settings
 
 

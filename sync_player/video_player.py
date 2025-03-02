@@ -196,7 +196,8 @@ class VideoPlayer:
             if track_descriptions:
                 # Extract IDs and names
                 track_ids = [desc[0] for desc in track_descriptions]
-                track_names = [desc[1].decode('utf-8') if isinstance(desc[1], bytes) else desc[1] for desc in track_descriptions]
+                track_names = [desc[1].decode('utf-8') if isinstance(desc[1], bytes) else desc[1] for desc in
+                               track_descriptions]
                 current_id = self.player.video_get_spu()
 
                 # Find the next track ID and name
@@ -214,6 +215,7 @@ class VideoPlayer:
 
                 print(f"Subtitle track set to: {next_name}")
                 return next_name  # Return the name of the selected subtitle track
+            return None
 
         except Exception as e:
             print(f"Error cycling subtitles: {e}")
@@ -226,7 +228,8 @@ class VideoPlayer:
             if track_descriptions:
                 # Extract IDs and names
                 track_ids = [desc[0] for desc in track_descriptions]
-                track_names = [desc[1].decode('utf-8') if isinstance(desc[1], bytes) else desc[1] for desc in track_descriptions]
+                track_names = [desc[1].decode('utf-8') if isinstance(desc[1], bytes) else desc[1] for desc in
+                               track_descriptions]
                 current_id = self.player.audio_get_track()
 
                 # Find the next track ID and name
@@ -244,6 +247,7 @@ class VideoPlayer:
 
                 print(f"Audio track set to: {next_name}")
                 return next_name  # Return the name of the selected audio track
+            return None
 
         except Exception as e:
             print(f"Error cycling audio tracks: {e}")

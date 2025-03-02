@@ -6,6 +6,36 @@ from align_videos_by_soundtrack import simple_html5_simult_player_builder
 from align_videos_by_soundtrack.align_params import SyncDetectorSummarizerParams
 
 
+def compute_offsets(video1_path, video2_path):
+    """
+    Computes the synchronization offsets between two videos.
+    """
+    # Parameters for synchronization from settings
+    params = SyncDetectorSummarizerParams(**settings.SYNC_PARAMS)
+
+    # Compute offsets
+    offsets = simple_html5_simult_player_builder.get_video_offsets(
+        video1_path, video2_path, params
+    )
+    print("Computed Offsets:")
+    print(f"Video 1: {offsets[0]}s")
+    print(f"Video 2: {offsets[1]}s")
+    return offsets
+
+
+def get_handle(video_panel):
+    """
+    Gets the window handle for the video panel.
+    """
+    handle = video_panel.winfo_id()
+    if platform.system() == "Darwin":
+        # For macOS, we might need to convert the handle to an integer
+        from ctypes import c_void_p
+
+        handle = c_void_p(int(handle))
+    return handle
+
+
 class SyncManager:
     """
     This class focuses on synchronization logic for the video players,
@@ -13,6 +43,11 @@ class SyncManager:
     """
 
     def __init__(self, root, player1, player2, video1_path, video2_path, event_manager):
+        self.media1 = None
+        self.media2 = None
+        self.seek_bar = None
+        self.user_is_seeking = None
+
         self.root = root
         self.player1 = player1
         self.player2 = player2
@@ -30,28 +65,12 @@ class SyncManager:
         self.event_manager.subscribe("cycle_audio_tracks", self.cycle_audio_tracks)
 
         # Compute offsets
-        self.offsets = self.compute_offsets(video1_path, video2_path)
+        self.offsets = compute_offsets(video1_path, video2_path)
         self.player1.offset = self.offsets[0]
         self.player2.offset = self.offsets[1]
 
         # Load videos
         self.load_videos(video1_path, video2_path)
-
-    def compute_offsets(self, video1_path, video2_path):
-        """
-        Computes the synchronization offsets between two videos.
-        """
-        # Parameters for synchronization from settings
-        params = SyncDetectorSummarizerParams(**settings.SYNC_PARAMS)
-
-        # Compute offsets
-        offsets = simple_html5_simult_player_builder.get_video_offsets(
-            video1_path, video2_path, params
-        )
-        print("Computed Offsets:")
-        print(f"Video 1: {offsets[0]}s")
-        print(f"Video 2: {offsets[1]}s")
-        return offsets
 
     def load_videos(self, path1, path2):
         """
@@ -73,8 +92,8 @@ class SyncManager:
             self.root.update_idletasks()  # Ensures that all widgets are fully initialized
 
             # Set video output windows
-            handle1 = self.get_handle(self.player1.panel)
-            handle2 = self.get_handle(self.player2.panel)
+            handle1 = get_handle(self.player1.panel)
+            handle2 = get_handle(self.player2.panel)
 
             system = platform.system()
             if system == "Windows":
@@ -107,18 +126,6 @@ class SyncManager:
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load videos: {e}")
-
-    def get_handle(self, video_panel):
-        """
-        Gets the window handle for the video panel.
-        """
-        handle = video_panel.winfo_id()
-        if platform.system() == "Darwin":
-            # For macOS, we might need to convert the handle to an integer
-            from ctypes import c_void_p
-
-            handle = c_void_p(int(handle))
-        return handle
 
     def perform_seek(self, time_seconds):
         """Performs the seek operation on both video players."""
