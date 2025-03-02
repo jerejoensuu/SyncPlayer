@@ -238,18 +238,8 @@ class UIManager:
 
         x_relative, y_relative = self.get_rel_coords(x, y)
 
-        # Show controls if they are hidden
-        if not self.controls_visible:
-            self.show_controls()
-
-        # Cancel any previous scheduled hiding
-        if self.hide_controls_job is not None:
-            self.root.after_cancel(self.hide_controls_job)
-
-        # Schedule the controls to be hidden after inactivity
-        self.hide_controls_job = self.root.after(
-            self.hide_controls_after, self.hide_controls
-        )
+        if self.is_within_app_window(x, y):
+            self.wake_controls()
 
         if self.player1.is_being_dragged:
             self.drag_player(self.player1, x_relative, y_relative)
@@ -313,6 +303,23 @@ class UIManager:
         self.control_panel2.pack()
         self.control_panel.pack()
         self.controls_visible = True
+
+    def wake_controls(self):
+        """
+        Wakes up the control panels and resets the timer.
+        """
+        # Show controls if they are hidden
+        if not self.controls_visible:
+            self.show_controls()
+
+        # Cancel any previous scheduled hiding
+        if self.hide_controls_job is not None:
+            self.root.after_cancel(self.hide_controls_job)
+
+        # Schedule the controls to be hidden after inactivity
+        self.hide_controls_job = self.root.after(
+            self.hide_controls_after, self.hide_controls
+        )
 
     def drag_player(self, player, x_current, y_current):
         """

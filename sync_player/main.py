@@ -22,12 +22,13 @@ class SyncedPlayer:
 
     def __init__(self, root, video1_path, video2_path):
         self.root = root
-        self.root.title("Synchronized Video Player")
+        self.root.title("SyncPlayer")
 
         # Initialize EventManager
         self.event_manager = EventManager()
 
         # VLC instances
+        # "--aout=directsound" fixes volume being shared between instances
         self.instance1 = vlc.Instance("--no-video-title-show", "--aout=directsound")
         self.instance2 = vlc.Instance("--no-video-title-show", "--aout=directsound")
 

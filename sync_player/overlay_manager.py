@@ -17,7 +17,6 @@ class OverlayManager:
         """
         Displays an overlay message using VLC's OSD functionality.
         """
-        print(f"Showing overlay: {message}")
         # Cancel any existing overlay job
         self.hide_overlay()
 
@@ -47,7 +46,6 @@ class OverlayManager:
         """
         Hides the overlay message.
         """
-        print("Hiding overlay")
         self.video_player.player.video_set_marquee_int(vlc.VideoMarqueeOption.Enable, 0)
         if self.overlay_job:
             self.video_player.panel.after_cancel(self.overlay_job)

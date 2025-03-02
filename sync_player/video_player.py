@@ -60,7 +60,6 @@ class VideoPlayer:
         """
         Displays an OSD message using VLC's built-in functionality.
         """
-        print(f"Showing OSD message: {message}")
         # Use the marquee filter to display the message
         self.player.video_set_marquee_int(vlc.VideoMarqueeOption.Enable, 1)
         self.player.video_set_marquee_int(vlc.VideoMarqueeOption.Timeout, duration)

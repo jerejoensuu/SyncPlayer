@@ -11,7 +11,7 @@ OVERLAY_SIZE = 75  # Font size for overlay messages
 HIDE_CONTROLS_AFTER = 3000
 
 # Default volume
-DEFAULT_VOLUME = 50  # Volume level from 0 to 100
+DEFAULT_VOLUME = 75  # Volume level from 0 to 100
 
 # Default initial positions and sizes for video players
 VIDEO1_INITIAL_X = 50
